@@ -127,23 +127,21 @@ class LXD(object):
             filename_entry = " filename=%s" % filename if filename else ""
 
             upload_path = os.path.join(self.workdir, "upload")
-            body = open(upload_path, "wb+")
-            for name, path in [("metadata", meta_path),
-                               ("rootfs", rootfs_path)]:
-                body.write(bytes("--%s\r\n" % boundary, "utf-8"))
-                body.write(bytes("Content-Disposition: form-data; "
-                                 "name=%s;%s\r\n" % (name, filename_entry),
-                                 "utf-8"))
-                body.write(b"Content-Type: application/octet-stream\r\n")
-                body.write(b"\r\n")
-                with open(path, "rb") as fd:
-                    shutil.copyfileobj(fd, body)
-                body.write(b"\r\n")
+            with open(upload_path, "wb+") as body:
+                for name, path in [("metadata", meta_path),
+                                   ("rootfs", rootfs_path)]:
+                    body.write(bytes("--%s\r\n" % boundary, "utf-8"))
+                    body.write(bytes("Content-Disposition: form-data; "
+                                     "name=%s;%s\r\n" % (name, filename_entry),
+                                     "utf-8"))
+                    body.write(b"Content-Type: application/octet-stream\r\n")
+                    body.write(b"\r\n")
+                    with open(path, "rb") as fd:
+                        shutil.copyfileobj(fd, body)
+                    body.write(b"\r\n")
 
-            body.write(bytes("--%s--\r\n" % boundary, "utf-8"))
-            body.write(b"\r\n")
-            body.close()
-
+                body.write(bytes("--%s--\r\n" % boundary, "utf-8"))
+                body.write(b"\r\n")
             headers['Content-Type'] = "multipart/form-data; boundary=%s" \
                 % boundary
 
@@ -154,8 +152,7 @@ class LXD(object):
         if status != 202:
             raise Exception("Failed to upload the image: %s" % status)
 
-        status, data = self.rest_call(data['operation'] + "/wait",
-                                      "", "GET", {})
+        status, data = self.rest_call(f'{data["operation"]}/wait', "", "GET", {})
         if status != 200:
             raise Exception("Failed to query the operation: %s" % status)
 
@@ -295,19 +292,15 @@ user.foo: {{ config_get("user.foo", "_unset_") }}
         if split:
             target_tarball_rootfs.close()
 
-        # Compress the tarball
-        r = subprocess.call([xz, "-9", destination_tar])
-        if r:
+        if r := subprocess.call([xz, "-9", destination_tar]):
             raise Exception("Failed to compress: %s" % destination_tar)
 
-        if split:
-            r = subprocess.call([xz, "-9", destination_tar_rootfs])
-            if r:
-                raise Exception("Failed to compress: %s" %
-                                destination_tar_rootfs)
-            return destination_tar + ".xz", destination_tar_rootfs + ".xz"
-        else:
-            return destination_tar + ".xz"
+        if not split:
+            return f'{destination_tar}.xz'
+        if r := subprocess.call([xz, "-9", destination_tar_rootfs]):
+            raise Exception("Failed to compress: %s" %
+                            destination_tar_rootfs)
+        return f'{destination_tar}.xz', f'{destination_tar_rootfs}.xz'
 
 
 if __name__ == "__main__":
@@ -350,7 +343,6 @@ if __name__ == "__main__":
                                       meta_path.split("/")[-1])
             else:
                 r = lxd.images_upload((meta_path, rootfs_path), args.public)
-            print("Image imported as: %s" % r['fingerprint'])
         else:
             path = busybox.create_tarball(template=args.template.split(","))
 
@@ -361,8 +353,7 @@ if __name__ == "__main__":
                 parser.exit(1, "This image is already in the store.\n")
 
             r = lxd.images_upload(path, args.public)
-            print("Image imported as: %s" % r['fingerprint'])
-
+        print("Image imported as: %s" % r['fingerprint'])
         setup_alias(args.alias, fingerprint)
 
     parser = FriendlyParser(description="Import a busybox image")
